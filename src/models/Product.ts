@@ -31,7 +31,7 @@ export interface IProduct extends Document {
   updatedAt: Date;
 }
 
-const VariantSchema = new Schema<IVariant>({
+export const VariantSchema = new Schema<IVariant>({
   sku: { type: String, required: true, uppercase: true },
   color: { type: String, trim: true },
   size: { type: String, trim: true },
@@ -39,7 +39,7 @@ const VariantSchema = new Schema<IVariant>({
   priceDiff: { type: Number, default: 0 },
 });
 
-const ProductSchema = new Schema<IProduct>(
+export const ProductSchema = new Schema<IProduct>(
   {
     title: { type: String, required: true, trim: true },
     slug: { type: String, required: true, unique: true, lowercase: true, index: true },

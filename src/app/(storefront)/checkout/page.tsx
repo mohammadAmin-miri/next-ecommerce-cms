@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect, useTransition } from 'react';
 import Link from 'next/link';
 import { useCartStore } from '@/store/cartStore';
-import { formatPrice } from '@/lib/utils';
 import {
   validateCouponAction,
   createOrderWithTransaction,
@@ -18,6 +17,13 @@ import {
   ShoppingBag,
   Shield,
 } from 'lucide-react';
+
+const formatPrice = (value: number) =>
+  new Intl.NumberFormat('fa-IR', {
+    style: 'currency',
+    currency: 'IRR',
+    maximumFractionDigits: 0,
+  }).format(value);
 
 export default function CheckoutPage() {
   const {
