@@ -10,9 +10,19 @@ export const authConfig: NextAuthConfig = {
     maxAge: 30 * 24 * 60 * 60, // ۳۰ روز
   },
   callbacks: {
-    authorized({ auth, request: { nextUrl } }) {
+    authorized({ auth, request }) {
+      const { nextUrl, headers } = request;
+
+      // 🔴 جلوگیری از اجرای ریدایرکت روی درخواست‌های Prefetch پس‌زمینه Next.js
+      if (
+        headers.get('purpose') === 'prefetch' ||
+        headers.get('next-router-prefetch') === '1'
+      ) {
+        return true;
+      }
+
       const isLoggedIn = !!auth?.user;
-      const userRole = auth?.user?.role;
+      const userRole = auth?.user?.role as UserRole | undefined;
       const isBanned = auth?.user?.isBanned;
 
       const isAdminRoute = nextUrl.pathname.startsWith('/admin');
@@ -20,24 +30,24 @@ export const authConfig: NextAuthConfig = {
         nextUrl.pathname.startsWith('/login') ||
         nextUrl.pathname.startsWith('/register');
 
-      // ۱. مسدود کردن کامل کاربران اخراج‌شده (Banned)
+      // ۱. مسدود کردن کاربران اخراج‌شده (فقط اگر از قبل در صفحه /login نباشند تا حلقه نسازد)
       if (isLoggedIn && isBanned) {
+        if (isAuthRoute) return true;
         return Response.redirect(new URL('/login?error=AccountBanned', nextUrl));
       }
 
       // ۲. محافظت از مسیرهای پنل مدیریت (/admin/*)
       if (isAdminRoute) {
-        if (!isLoggedIn) return false; // هدایت خودکار به /login
+        if (!isLoggedIn) return false; // هدایت به /login
 
         const allowedAdminRoles: UserRole[] = ['ADMIN', 'DEMO_ADMIN', 'EDITOR'];
         if (!userRole || !allowedAdminRoles.includes(userRole)) {
-          // اگر مشتری عادی (CUSTOMER) سعی کرد وارد /admin شود، به صفحه اصلی فروشگاه برگردد
-          return Response.redirect(new URL('/?error=Forbidden', nextUrl));
+          return Response.redirect(new URL('/', nextUrl));
         }
         return true;
       }
 
-      // ۳. اگر کاربر لاگین است و وارد صفحه /login شد، هدایت به مقصد مناسب
+      // ۳. اگر کاربر لاگین است و خودش مستقیماً وارد /login شد
       if (isAuthRoute && isLoggedIn) {
         const redirectUrl =
           userRole === 'CUSTOMER' ? '/' : '/admin/dashboard';
@@ -65,5 +75,5 @@ export const authConfig: NextAuthConfig = {
       return session;
     },
   },
-  providers: [], // در فایل auth.ts پر می‌شود
+  providers: [],
 };

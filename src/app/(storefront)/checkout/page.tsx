@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useTransition } from 'react';
 import Link from 'next/link';
-import { useCartStore } from '@/store/cartStore';
+import { useCartStore } from '@/store/cart.store';
 import {
   validateCouponAction,
   createOrderWithTransaction,

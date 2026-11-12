@@ -1,12 +1,13 @@
 import { MetadataRoute } from 'next';
+import { unstable_cacheLife as cacheLife } from 'next/cache';
 import { connectDB } from '@/lib/db';
 import { Product } from '@/models/Product';
 
-// کش کردن نقشه سایت برای ۱ ساعت (کاهش فشار روی دیتابیس)
-export const revalidate = 3600;
-
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  // اگر روی سرور اصلی دیپلوی کردید، آدرس سایت جایگزین می‌شود
+  // فعال‌سازی سیستم کشینگ جدید Next.js 16 به جای export const revalidate
+  'use cache';
+  cacheLife('hours');
+
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
   await connectDB();
@@ -19,7 +20,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // تولید لینک داینامیک محصولات
   const productUrls: MetadataRoute.Sitemap = products.map((product) => ({
     url: `${baseUrl}/products/${product.slug}`,
-    lastModified: product.updatedAt,
+    lastModified: product.updatedAt ? new Date(product.updatedAt) : new Date(),
     changeFrequency: 'daily',
     priority: 0.8,
   }));

@@ -5,9 +5,17 @@ import { connection } from 'next/server';
 import { Types } from 'mongoose';
 import { connectDB } from '@/lib/db';
 import { Product, IVariant } from '@/models/Product';
+import { Comment } from '@/models/Comment';
 import '@/models/Category';
 import { ProductDetailClient } from '@/components/storefront/ProductDetailClient';
-import { ChevronLeft, ShieldCheck, Truck, RotateCcw } from 'lucide-react';
+import {
+  ChevronLeft,
+  ShieldCheck,
+  Truck,
+  RotateCcw,
+  MessageSquare,
+  Star,
+} from 'lucide-react';
 
 export const instant = false;
 
@@ -24,7 +32,6 @@ interface LeanProductDetail {
   description: string;
   basePrice: number;
   discountPrice?: number;
-  // 🔴 هماهنگ شده با مدل شما: آرایه استرینگ و IVariant
   images: string[];
   variants: IVariant[];
   categories: PopulatedCategory[];
@@ -34,6 +41,15 @@ interface LeanProductDetail {
     metaTitle?: string;
     metaDescription?: string;
   };
+}
+
+interface LeanApprovedComment {
+  _id: Types.ObjectId;
+  authorName: string;
+  rating: number;
+  content: string;
+  adminReply?: string;
+  createdAt: Date;
 }
 
 interface ProductPageProps {
@@ -55,9 +71,7 @@ export async function generateMetadata(
   }).lean<LeanProductDetail>();
 
   if (!product) {
-    return {
-      title: 'محصول یافت نشد | فروشگاه آنلاین',
-    };
+    return { title: 'محصول یافت نشد | فروشگاه آنلاین' };
   }
 
   const plainDescription = product.description
@@ -80,7 +94,6 @@ export async function generateMetadata(
       description: metaDescription,
       url: `${baseUrl}/products/${product.slug}`,
       siteName: 'فروشگاه آنلاین',
-      // 🔴 هماهنگ شده با آرایه متنی تصاویر
       images:
         product.images && product.images.length > 0
           ? [
@@ -117,7 +130,15 @@ export default async function SingleProductPage({ params }: ProductPageProps) {
     notFound();
   }
 
-  // سریالایز کردن داده‌ها برای ارسال امن به Client Component
+  // دریافت دیدگاه‌های تایید شده این محصول
+  const approvedComments = await Comment.find({
+    targetType: 'PRODUCT',
+    targetId: product._id,
+    status: 'APPROVED',
+  })
+    .sort({ createdAt: -1 })
+    .lean<LeanApprovedComment[]>();
+
   const serializedProduct = {
     _id: product._id.toString(),
     title: product.title,
@@ -126,7 +147,6 @@ export default async function SingleProductPage({ params }: ProductPageProps) {
     basePrice: product.basePrice,
     discountPrice: product.discountPrice,
     totalStock: product.totalStock,
-    // 🔴 تبدیل استرینگ‌ها به فرمت مورد نیاز کلاینت کامپوننت
     images: product.images.map((imgUrl, index) => ({
       url: imgUrl,
       alt: product.title,
@@ -172,6 +192,7 @@ export default async function SingleProductPage({ params }: ProductPageProps) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
 
+      {/* مسیر راهنما (Breadcrumb) */}
       <nav className="flex items-center gap-2 text-xs text-slate-400">
         <Link href="/" className="hover:text-white transition">
           صفحه اصلی
@@ -197,8 +218,10 @@ export default async function SingleProductPage({ params }: ProductPageProps) {
         </span>
       </nav>
 
+      {/* کامپوننت کلاینت انتخاب متغیر و خرید */}
       <ProductDetailClient product={serializedProduct} />
 
+      {/* ویژگی‌های اطمینان خرید */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-6 border-t border-slate-800/80">
         <div className="flex items-center gap-3 p-4 rounded-xl bg-slate-900/50 border border-slate-800/80">
           <ShieldCheck className="w-6 h-6 text-emerald-400 shrink-0" />
@@ -223,6 +246,7 @@ export default async function SingleProductPage({ params }: ProductPageProps) {
         </div>
       </div>
 
+      {/* توضیحات تخصصی محصول */}
       <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 md:p-8 space-y-4">
         <h2 className="text-lg font-bold text-white border-b border-slate-800 pb-3">
           نقد و بررسی و مشخصات محصول
@@ -231,6 +255,47 @@ export default async function SingleProductPage({ params }: ProductPageProps) {
           className="prose prose-invert prose-slate max-w-none text-sm leading-7 text-slate-300"
           dangerouslySetInnerHTML={{ __html: serializedProduct.description }}
         />
+      </div>
+
+      {/* بخش دیدگاه‌های خریداران */}
+      <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 md:p-8 space-y-6">
+        <h2 className="text-lg font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
+          <MessageSquare className="w-5 h-5 text-blue-400" />
+          دیدگاه و امتیاز خریداران ({approvedComments.length})
+        </h2>
+
+        {approvedComments.length === 0 ? (
+          <p className="text-sm text-slate-400">
+            هنوز دیدگاهی برای این محصول ثبت نشده است.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            {approvedComments.map((c) => (
+              <div
+                key={c._id.toString()}
+                className="p-4 rounded-xl bg-slate-950/70 border border-slate-800/80 space-y-2"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-bold text-white">
+                    {c.authorName}
+                  </span>
+                  <div className="flex items-center gap-1 text-amber-400 text-xs">
+                    <Star className="w-3.5 h-3.5 fill-amber-400" />
+                    <span>{c.rating} از ۵</span>
+                  </div>
+                </div>
+                <p className="text-sm text-slate-300 leading-relaxed">
+                  {c.content}
+                </p>
+                {c.adminReply && (
+                  <div className="mt-2 p-3 rounded-lg bg-emerald-950/30 border border-emerald-800/40 text-xs text-emerald-300">
+                    <strong>پاسخ فروشگاه:</strong> {c.adminReply}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

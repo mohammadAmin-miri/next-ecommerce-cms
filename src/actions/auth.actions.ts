@@ -49,18 +49,17 @@ export async function quickLoginAction(mode: 'DEMO' | 'LOCAL_ADMIN') {
     };
   }
 
-  const credentials =
+  const email =
     mode === 'DEMO'
-      ? {
-          email: process.env.DEMO_ADMIN_EMAIL || 'demo@store.com',
-          password: process.env.DEMO_ADMIN_PASSWORD || 'Demo@1234',
-        }
-      : {
-          email: process.env.ADMIN_EMAIL || 'admin@store.com',
-          password: process.env.ADMIN_PASSWORD || 'Admin@1234',
-        };
+      ? process.env.DEMO_ADMIN_EMAIL || 'demo@example.com'
+      : process.env.SUPER_ADMIN_EMAIL || 'admin@example.com';
 
-  return loginAction(credentials);
+  const password =
+    mode === 'DEMO'
+      ? process.env.DEMO_ADMIN_PASSWORD || 'Demo@1234'
+      : process.env.SUPER_ADMIN_PASSWORD || 'Admin@1234';
+
+  return loginAction({ email, password });
 }
 
 /**
