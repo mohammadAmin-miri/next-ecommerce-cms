@@ -5,7 +5,8 @@ import {
   CategoryManagerClient,
   SerializedCategory,
 } from '@/components/cms/CategoryManagerClient';
-
+import { connection } from 'next/server';
+export const instant = false;
 interface PopulatedParent {
   _id: Types.ObjectId;
   name: string;
@@ -21,6 +22,7 @@ interface LeanCategory {
 }
 
 export default async function AdminCategoriesPage() {
+    await connection();
   await connectDB();
 
   const rawCategories = await Category.find({})

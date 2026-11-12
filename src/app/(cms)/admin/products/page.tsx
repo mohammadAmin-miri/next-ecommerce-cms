@@ -9,6 +9,9 @@ import {
   ProductsTableClient,
   SerializedProduct,
 } from '@/components/cms/ProductsTableClient';
+import { connection } from 'next/server';
+
+export const instant = false;
 
 interface ProductsPageProps {
   searchParams: Promise<{
@@ -49,6 +52,7 @@ interface LeanPopulatedProduct {
 export default async function AdminProductsPage({
   searchParams,
 }: ProductsPageProps) {
+  await connection();
   const resolvedParams = await searchParams;
   const query = resolvedParams.q || '';
   const statusFilter = resolvedParams.status || 'ALL';

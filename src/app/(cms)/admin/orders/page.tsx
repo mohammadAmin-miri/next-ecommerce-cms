@@ -5,7 +5,8 @@ import {
   OrdersTableClient,
   SerializedOrder,
 } from '@/components/cms/OrdersTableClient';
-
+import { connection } from 'next/server';
+export const instant = false;
 interface LeanOrder {
   _id: Types.ObjectId;
   orderNumber: string;
@@ -19,6 +20,7 @@ interface LeanOrder {
 }
 
 export default async function AdminOrdersPage() {
+  await connection();
   await connectDB();
 
   const rawOrders = await Order.find({})

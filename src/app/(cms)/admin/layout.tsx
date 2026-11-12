@@ -3,6 +3,8 @@ import { Eye, ShieldCheck } from 'lucide-react';
 import { auth } from '@/lib/auth';
 import { AdminSidebar } from '@/components/cms/AdminSidebar';
 
+
+export const instant = false;
 export default async function AdminLayout({
   children,
 }: {

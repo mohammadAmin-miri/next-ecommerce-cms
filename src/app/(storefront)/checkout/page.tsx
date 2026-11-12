@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState, useRef, useEffect, useTransition } from 'react';
 import Link from 'next/link';
 import { useCartStore } from '@/store/cartStore';
 import { formatPrice } from '@/lib/utils';
@@ -44,8 +44,17 @@ export default function CheckoutPage() {
   const [fullAddress, setFullAddress] = useState('');
   const [postalCode, setPostalCode] = useState('');
 
-  // کلید یکتا برای جلوگیری از ثبت سفارش تکراری در دابل‌کلیک
-  const [idempotencyKey] = useState(() => `IDEM-${Date.now()}-${Math.random()}`);
+  // 🔴 راه حل قطعی: ترکیب useRef و useEffect
+  const idempotencyKeyRef = useRef<string>('');
+
+  useEffect(() => {
+    // چون Date.now داخل useEffect است، Next.js خطای Prerender نمی‌گیرد.
+    // چون از useRef استفاده کردیم، React خطای Cascading Render نمی‌گیرد.
+    idempotencyKeyRef.current = `IDEM-${Date.now()}-${Math.floor(
+      Math.random() * 100000
+    )}`;
+  }, []);
+
   const [orderResult, setOrderResult] = useState<{
     orderNumber: string;
     orderId: string;
@@ -101,7 +110,8 @@ export default function CheckoutPage() {
         shippingMethod: 'پست پیشتاز',
         shippingCost,
         couponCode: coupon?.code,
-        idempotencyKey,
+        // دریافت کلید تولید شده از رفرنس:
+        idempotencyKey: idempotencyKeyRef.current || `IDEM-${Date.now()}`, 
       });
 
       if (!res.success) {
@@ -116,6 +126,8 @@ export default function CheckoutPage() {
       });
     });
   };
+
+// ... بقیه کدهای صفحه بدون تغییر ...
 
   // صفحه رسید موفق پس از ثبت سفارش
   if (orderResult) {

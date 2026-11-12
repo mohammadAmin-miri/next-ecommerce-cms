@@ -2,7 +2,7 @@ import { auth } from '@/lib/auth';
 import { requireWriteAccess, AuthGuardError } from '@/lib/auth-guard';
 import { ShieldCheck, Database, CheckCircle2 } from 'lucide-react';
 import { revalidatePath } from 'next/cache';
-
+export const instant = false;
 // متغیر موقت در حافظه سرور برای نمایش نتیجه تست گارد در صفحه
 let lastTestMessage: { type: 'success' | 'error'; text: string } | null = null;
 
