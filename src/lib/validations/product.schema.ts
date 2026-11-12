@@ -24,4 +24,5 @@ export const productFormSchema = z.object({
   seoMetaDescription: z.string().optional(),
 });
 
+export type VariantFormValues = z.infer<typeof variantFormSchema>;
 export type ProductFormValues = z.infer<typeof productFormSchema>;
