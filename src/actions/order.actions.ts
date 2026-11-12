@@ -1,6 +1,5 @@
 'use server';
 
-import mongoose from 'mongoose';
 import { revalidatePath } from 'next/cache';
 import { connectDB } from '@/lib/db';
 import { auth } from '@/lib/auth';
@@ -74,12 +73,12 @@ export async function validateCouponAction(code: string, subtotal: number) {
 }
 
 /**
- * ۲. ثبت سفارش و کسر اتمیک موجودی انبار با MongoDB Transaction
+ * ۲. ثبت سفارش و کسر موجودی انبار (نسخه سازگار با دیتابیس لوکال Standalone)
  */
 export async function createOrderWithTransaction(input: CreateOrderInput) {
   await connectDB();
 
-  // الف) بررسی Idempotency برای جلوگیری از ثبت سفارش تکراری در دابل‌کلیک
+  // الف) بررسی جلوگیری از ثبت سفارش تکراری در دابل‌کلیک
   const existingOrder = await Order.findOne({
     idempotencyKey: input.idempotencyKey,
   }).lean();
@@ -94,14 +93,12 @@ export async function createOrderWithTransaction(input: CreateOrderInput) {
   }
 
   const authSession = await auth();
-  const dbSession = await mongoose.startSession();
-  dbSession.startTransaction();
 
   try {
     let subtotalAmount = 0;
     const processedItems = [];
 
-    // ب) کسر اتمیک موجودی هر متغیر (Variant) فقط در صورت کافی بودن موجودی
+    // ب) کسر موجودی انبار
     for (const item of input.items) {
       const updatedProduct = await Product.findOneAndUpdate(
         {
@@ -119,8 +116,7 @@ export async function createOrderWithTransaction(input: CreateOrderInput) {
             'variants.$.stock': -item.quantity,
             totalStock: -item.quantity,
           },
-        },
-        { new: true, session: dbSession }
+        }
       );
 
       if (!updatedProduct) {
@@ -149,7 +145,7 @@ export async function createOrderWithTransaction(input: CreateOrderInput) {
       });
     }
 
-    // ج) بررسی و اعمال کوپن تخفیف در داخل همان تراکنش
+    // ج) بررسی و اعمال کوپن تخفیف
     let discountAmount = 0;
     if (input.couponCode) {
       const coupon = await Coupon.findOneAndUpdate(
@@ -159,8 +155,7 @@ export async function createOrderWithTransaction(input: CreateOrderInput) {
           expiresAt: { $gt: new Date() },
           $expr: { $lt: ['$usedCount', '$usageLimit'] },
         },
-        { $inc: { usedCount: 1 } },
-        { new: true, session: dbSession }
+        { $inc: { usedCount: 1 } }
       );
 
       if (coupon && subtotalAmount >= coupon.minOrderAmount) {
@@ -181,33 +176,27 @@ export async function createOrderWithTransaction(input: CreateOrderInput) {
       100 + Math.random() * 900
     )}`;
 
-    // د) ایجاد سند سفارش (با پرداخت آزمایشی موفق PAID در درگاه Mock)
-    const [createdOrder] = await Order.create(
-      [
-        {
-          orderNumber,
-          user: authSession?.user?.id ? authSession.user.id : null,
-          orderItems: processedItems,
-          shippingAddress: input.shippingAddress,
-          shippingMethod: input.shippingMethod || 'پست پیشتاز',
-          shippingCost,
-          subtotalAmount,
-          discountAmount,
-          couponCode: input.couponCode,
-          finalAmount,
-          paymentStatus: 'PAID',
-          orderStatus: 'PROCESSING',
-          idempotencyKey: input.idempotencyKey,
-        },
-      ],
-      { session: dbSession }
-    );
-
-    await dbSession.commitTransaction();
+    // د) ایجاد سند سفارش
+    const [createdOrder] = await Order.create([
+      {
+        orderNumber,
+        user: authSession?.user?.id ? authSession.user.id : null,
+        orderItems: processedItems,
+        shippingAddress: input.shippingAddress,
+        shippingMethod: input.shippingMethod || 'پست پیشتاز',
+        shippingCost,
+        subtotalAmount,
+        discountAmount,
+        couponCode: input.couponCode,
+        finalAmount,
+        paymentStatus: 'PAID',
+        orderStatus: 'PROCESSING',
+        idempotencyKey: input.idempotencyKey,
+      },
+    ]);
 
     revalidatePath('/admin/orders');
     revalidatePath('/admin/products');
-    revalidatePath('/admin/dashboard');
     revalidatePath('/products');
 
     return {
@@ -216,17 +205,14 @@ export async function createOrderWithTransaction(input: CreateOrderInput) {
       orderNumber: createdOrder.orderNumber,
     };
   } catch (error) {
-    await dbSession.abortTransaction();
     const message =
-      error instanceof Error ? error.message : 'خطا در ثبت سفارش و تراکنش انبار';
+      error instanceof Error ? error.message : 'خطا در ثبت سفارش';
     return { success: false, error: message };
-  } finally {
-    dbSession.endSession();
   }
 }
 
 /**
- * ۳. تغییر وضعیت سفارش، ثبت کد رهگیری و بازگشت خودکار موجودی به انبار در صورت لغو
+ * ۳. تغییر وضعیت سفارش و بازگشت خودکار موجودی به انبار (نسخه لوکال)
  */
 export async function updateOrderStatusAction(params: {
   orderId: string;
@@ -235,14 +221,11 @@ export async function updateOrderStatusAction(params: {
   trackingCode?: string;
   adminNote?: string;
 }) {
-  const dbSession = await mongoose.startSession();
-  dbSession.startTransaction();
-
   try {
     await requireWriteAccess(['ADMIN', 'EDITOR']);
     await connectDB();
 
-    const order = await Order.findById(params.orderId).session(dbSession);
+    const order = await Order.findById(params.orderId);
     if (!order) {
       throw new Error('سفارش مورد نظر یافت نشد.');
     }
@@ -250,7 +233,7 @@ export async function updateOrderStatusAction(params: {
     const wasCancelled = order.orderStatus === 'CANCELLED';
     const isNowCancelled = params.orderStatus === 'CANCELLED';
 
-    // اگر سفارش برای اولین بار به وضعیت CANCELLED تغییر کرد، موجودی کالاها به انبار برگردانده شود
+    // اگر سفارش برای اولین بار لغو شد، موجودی به انبار برگردانده شود
     if (!wasCancelled && isNowCancelled) {
       for (const item of order.orderItems) {
         await Product.findOneAndUpdate(
@@ -260,8 +243,7 @@ export async function updateOrderStatusAction(params: {
               'variants.$.stock': item.quantity,
               totalStock: item.quantity,
             },
-          },
-          { session: dbSession }
+          }
         );
       }
     }
@@ -271,8 +253,7 @@ export async function updateOrderStatusAction(params: {
     if (params.trackingCode !== undefined) order.trackingCode = params.trackingCode;
     if (params.adminNote !== undefined) order.adminNote = params.adminNote;
 
-    await order.save({ session: dbSession });
-    await dbSession.commitTransaction();
+    await order.save();
 
     revalidatePath('/admin/orders');
     revalidatePath(`/admin/orders/${params.orderId}`);
@@ -280,14 +261,11 @@ export async function updateOrderStatusAction(params: {
 
     return { success: true };
   } catch (error) {
-    await dbSession.abortTransaction();
     if (error instanceof AuthGuardError) {
       return { success: false, error: error.message, code: error.code };
     }
     const message =
       error instanceof Error ? error.message : 'خطا در بروزرسانی وضعیت سفارش';
     return { success: false, error: message };
-  } finally {
-    dbSession.endSession();
   }
 }
