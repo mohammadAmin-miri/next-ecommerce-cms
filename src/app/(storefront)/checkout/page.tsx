@@ -1,109 +1,189 @@
 'use client';
 
-import { useState, useRef, useEffect, useTransition } from 'react';
+import { useState, useTransition, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { useCartStore } from '@/store/cart.store';
 import {
-  validateCouponAction,
-  createOrderWithTransaction,
-} from '@/actions/order.actions';
+  placeCheckoutOrderAction,
+  validateCouponCodeAction,
+} from '@/actions/checkout.actions';
+import { formatPrice } from '@/lib/utils';
 import {
-  Trash2,
+  MapPin,
+  Truck,
   TicketPercent,
-  CreditCard,
   CheckCircle2,
-  AlertCircle,
+  ShieldCheck,
+  ArrowRight,
   Loader2,
+  AlertCircle,
   ShoppingBag,
-  Shield,
 } from 'lucide-react';
 
-const formatPrice = (value: number) =>
-  new Intl.NumberFormat('fa-IR', {
-    style: 'currency',
-    currency: 'IRR',
-    maximumFractionDigits: 0,
-  }).format(value);
+// تشخیص ایمن رندر کلاینت در React 19 بدون نیاز به useEffect
+const emptySubscribe = () => () => {};
+function useIsMounted() {
+  return useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
+}
 
 export default function CheckoutPage() {
-  const {
-    items,
-    coupon,
-    removeItem,
-    updateQuantity,
-    applyCoupon,
-    clearCart,
-    getSubtotal,
-    getFinalAmount,
-  } = useCartStore();
+  const { items, getTotalPrice, getTotalItems, clearCart } = useCartStore();
+  const mounted = useIsMounted();
 
+  // فیلدهای آدرس گیرنده
+  const [recipientName, setRecipientName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [city, setCity] = useState('تهران');
+  const [fullAddress, setFullAddress] = useState('');
+  const [postalCode, setPostalCode] = useState('');
+  const [shippingMethod, setShippingMethod] = useState('پست پیشتاز ');
+
+  // وضعیت کد تخفیف
   const [couponInput, setCouponInput] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState<{
+    code: string;
+    percent: number;
+  } | null>(null);
   const [couponMsg, setCouponMsg] = useState<{
-    type: 'success' | 'error';
+    type: 'ok' | 'err';
     text: string;
   } | null>(null);
 
-  // استیت فرم آدرس مشتری
-  const [recipientName, setRecipientName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [city, setCity] = useState('');
-  const [fullAddress, setFullAddress] = useState('');
-  const [postalCode, setPostalCode] = useState('');
+  // کلید یکتای جلوگیری از تکرار سفارش
+  const [idempotencyKey] = useState(() => `CHK-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  const [error, setError] = useState<string | null>(null);
+  const [completedOrderNumber, setCompletedOrderNumber] = useState<string | null>(null);
 
-  // 🔴 راه حل قطعی: ترکیب useRef و useEffect
-  const idempotencyKeyRef = useRef<string>('');
-
-  useEffect(() => {
-    // چون Date.now داخل useEffect است، Next.js خطای Prerender نمی‌گیرد.
-    // چون از useRef استفاده کردیم، React خطای Cascading Render نمی‌گیرد.
-    idempotencyKeyRef.current = `IDEM-${Date.now()}-${Math.floor(
-      Math.random() * 100000
-    )}`;
-  }, []);
-
-  const [orderResult, setOrderResult] = useState<{
-    orderNumber: string;
-    orderId: string;
-  } | null>(null);
-  const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [isCheckingCoupon, startCouponTransition] = useTransition();
 
-  const shippingCost = items.length > 0 ? 45000 : 0;
-  const subtotal = getSubtotal();
-  const finalAmount = getFinalAmount(shippingCost);
+  if (!mounted) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-12">
+        <div className="h-64 rounded-2xl bg-slate-900/50 border border-slate-800 animate-pulse flex items-center justify-center text-slate-400 text-sm">
+          در حال آماده‌سازی درگاه تسویه‌حساب...
+        </div>
+      </div>
+    );
+  }
+
+  // صفحه رسید موفقیت‌آمیز پس از ثبت سفارش
+  if (completedOrderNumber) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-16 text-center space-y-6">
+        <div className="w-20 h-20 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mx-auto text-emerald-400">
+          <CheckCircle2 className="w-10 h-10" />
+        </div>
+
+        <div className="space-y-2">
+          <h1 className="text-2xl font-extrabold text-white">
+            سفارش شما با موفقیت ثبت و پرداخت شد!
+          </h1>
+          <p className="text-sm text-slate-400">
+            موجودی کالاها از انبار کسر گردید و سفارش شما در صف پردازش و ارسال قرار گرفت.
+          </p>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-md mx-auto space-y-3">
+          <div className="flex items-center justify-between text-xs text-slate-400">
+            <span>شماره پیگیری سفارش:</span>
+            <span className="font-mono text-base font-bold text-emerald-400">
+              {completedOrderNumber}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-xs text-slate-400">
+            <span>تحویل‌گیرنده:</span>
+            <span className="text-white font-medium">{recipientName}</span>
+          </div>
+          <div className="flex items-center justify-between text-xs text-slate-400">
+            <span>روش ارسال:</span>
+            <span className="text-slate-200">{shippingMethod}</span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-center gap-4 pt-2">
+          <Link
+            href="/products"
+            className="px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold transition"
+          >
+            بازگشت به فروشگاه
+          </Link>
+          <Link
+            href="/admin/orders"
+            prefetch={false}
+            className="px-6 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium transition"
+          >
+            مشاهده سفارش در پنل ادمین
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // اگر سبد خرید خالی است
+  if (items.length === 0) {
+    return (
+      <div className="max-w-xl mx-auto px-4 py-16 text-center space-y-5">
+        <ShoppingBag className="w-12 h-12 text-slate-500 mx-auto" />
+        <h1 className="text-xl font-bold text-white">
+          هیچ کالایی برای تسویه‌حساب در سبد خرید نیست
+        </h1>
+        <Link
+          href="/products"
+          className="inline-block px-6 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold"
+        >
+          مشاهده محصولات فروشگاه
+        </Link>
+      </div>
+    );
+  }
+
+  const subtotal = getTotalPrice();
+  const totalItems = getTotalItems();
+  const discountAmount = appliedCoupon
+    ? Math.round((subtotal * appliedCoupon.percent) / 100)
+    : 0;
+  const freeShippingThreshold = 5000000;
+  const shippingCost =
+    subtotal >= freeShippingThreshold
+      ? 0
+      : shippingMethod === 'پیک موتوری ویژه (تهران)'
+      ? 75000
+      : 45000;
+  const finalPayable = Math.max(0, subtotal - discountAmount + shippingCost);
 
   const handleApplyCoupon = () => {
-    if (!couponInput.trim()) return;
     setCouponMsg(null);
-
-    startTransition(async () => {
-      const res = await validateCouponAction(couponInput, subtotal);
-      if (!res.success) {
-        applyCoupon(null);
-        setCouponMsg({ type: 'error', text: res.error || 'کد نامعتبر است' });
-      } else {
-        applyCoupon({
-          code: res.code!,
-          discountAmount: res.discountAmount!,
-        });
-        setCouponMsg({
-          type: 'success',
-          text: `کد تخفیف اعمال شد (${formatPrice(res.discountAmount!)} کسر گردید).`,
-        });
+    startCouponTransition(async () => {
+      const res = await validateCouponCodeAction(couponInput);
+      if (!res.success || !res.discountPercent || !res.code) {
+        setAppliedCoupon(null);
+        setCouponMsg({ type: 'err', text: res.error || 'کد تخفیف نامعتبر است.' });
+        return;
       }
+      setAppliedCoupon({ code: res.code, percent: res.discountPercent });
+      setCouponMsg({
+        type: 'ok',
+        text: `کد تخفیف ${res.discountPercent} درصدی با موفقیت اعمال شد!`,
+      });
     });
   };
 
   const handlePlaceOrder = (e: React.FormEvent) => {
     e.preventDefault();
-    if (items.length === 0) return;
-    setCheckoutError(null);
+    setError(null);
 
     startTransition(async () => {
-      const res = await createOrderWithTransaction({
+      const res = await placeCheckoutOrderAction({
         items: items.map((i) => ({
           productId: i.productId,
           variantSku: i.variantSku,
+          title: i.title,
+          unitPrice: i.unitPrice,
           quantity: i.quantity,
         })),
         shippingAddress: {
@@ -113,368 +193,280 @@ export default function CheckoutPage() {
           fullAddress,
           postalCode,
         },
-        shippingMethod: 'پست پیشتاز',
-        shippingCost,
-        couponCode: coupon?.code,
-        // دریافت کلید تولید شده از رفرنس:
-        idempotencyKey: idempotencyKeyRef.current || `IDEM-${Date.now()}`, 
+        shippingMethod,
+        couponCode: appliedCoupon?.code,
+        idempotencyKey,
       });
 
       if (!res.success) {
-        setCheckoutError(res.error || 'خطا در ثبت سفارش');
+        setError(res.error || 'خطا در ثبت نهایی سفارش');
         return;
       }
 
       clearCart();
-      setOrderResult({
-        orderNumber: res.orderNumber!,
-        orderId: res.orderId!,
-      });
+      setCompletedOrderNumber(res.orderNumber || 'ORD-SUCCESS');
     });
   };
 
-// ... بقیه کدهای صفحه بدون تغییر ...
-
-  // صفحه رسید موفق پس از ثبت سفارش
-  if (orderResult) {
-    return (
-      <div
-        dir="rtl"
-        className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4"
-      >
-        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center space-y-5 shadow-2xl">
-          <div className="w-16 h-16 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
-            <CheckCircle2 className="w-9 h-9" />
-          </div>
-          <h1 className="text-2xl font-bold text-white">
-            سفارش شما با موفقیت ثبت شد!
-          </h1>
-          <p className="text-xs text-slate-400 leading-relaxed">
-            پرداخت آزمایشی (Mock Gateway) تایید شد و موجودی کالاها به‌صورت اتمیک
-            از انبار کسر گردید.
-          </p>
-
-          <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 font-mono text-sm text-emerald-400">
-            شماره سفارش: {orderResult.orderNumber}
-          </div>
-
-          <div className="flex flex-col gap-2.5 pt-2">
-            <Link
-              href="/admin/orders"
-              className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition"
-            >
-              مشاهده این سفارش در پنل مدیریت (/admin/orders)
-            </Link>
-            <Link
-              href="/admin/products"
-              className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition"
-            >
-              بررسی کسر موجودی در جدول محصولات
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div dir="rtl" className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="border-b border-slate-800 bg-slate-900/70">
-        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-          <h1 className="font-bold text-lg text-white flex items-center gap-2">
-            <ShoppingBag className="w-5 h-5 text-blue-400" />
-            <span>سبد خرید و تسویه‌حساب</span>
-          </h1>
-          <Link
-            href="/admin/products"
-            className="text-xs text-slate-400 hover:text-white flex items-center gap-1.5"
-          >
-            <Shield className="w-4 h-4 text-blue-400" />
-            <span>پنل مدیریت</span>
-          </Link>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
+      <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white">تسویه‌حساب و ثبت نهایی سفارش</h1>
+          <p className="text-xs text-slate-400 mt-1">
+            اطلاعات آدرس گیرنده و شیوه ارسال مرسوله را تکمیل فرمایید
+          </p>
         </div>
-      </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-8">
-        {items.length === 0 ? (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center space-y-4">
-            <p className="text-slate-400 text-sm">سبد خرید شما خالی است.</p>
-            <Link
-              href="/admin/products"
-              className="inline-block px-5 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-medium"
-            >
-              مشاهده لیست محصولات
-            </Link>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* ستون راست: لیست آیتم‌های سبد و فرم آدرس */}
-            <div className="lg:col-span-2 space-y-6">
-              {/* لیست محصولات داخل سبد */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-                <h2 className="text-base font-bold text-white border-b border-slate-800 pb-3">
-                  ۱. اقلام سبد خرید ({items.length})
-                </h2>
+        <Link
+          href="/cart"
+          className="text-xs text-slate-300 hover:text-white flex items-center gap-1.5"
+        >
+          <ArrowRight className="w-4 h-4" />
+          <span>بازگشت به سبد خرید</span>
+        </Link>
+      </div>
 
-                <div className="divide-y divide-slate-800">
-                  {items.map((item) => (
-                    <div
-                      key={`${item.productId}-${item.variantSku}`}
-                      className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-                    >
-                      <div className="flex items-center gap-3.5">
-                        <img
-                          src={item.image}
-                          alt={item.title}
-                          className="w-16 h-16 rounded-xl object-cover bg-slate-800 border border-slate-700"
-                        />
-                        <div>
-                          <Link
-                            href={`/products/${item.slug}`}
-                            className="font-semibold text-white hover:text-blue-400 text-sm"
-                          >
-                            {item.title}
-                          </Link>
-                          <div className="text-xs text-slate-400 mt-1">
-                            تنوع: {item.color} {item.size} ({item.variantSku})
-                          </div>
-                          <div className="text-xs font-mono text-emerald-400 mt-1">
-                            واحد: {formatPrice(item.unitPrice)}
-                          </div>
-                        </div>
-                      </div>
+      {error && (
+        <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm flex items-center gap-2">
+          <AlertCircle className="w-5 h-5 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
 
-                      <div className="flex items-center justify-between sm:justify-end gap-4">
-                        <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateQuantity(
-                                item.productId,
-                                item.variantSku,
-                                item.quantity - 1
-                              )
-                            }
-                            className="w-6 h-6 rounded bg-slate-800 text-white text-xs cursor-pointer"
-                          >
-                            -
-                          </button>
-                          <span className="font-mono text-xs px-2">
-                            {item.quantity}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateQuantity(
-                                item.productId,
-                                item.variantSku,
-                                item.quantity + 1
-                              )
-                            }
-                            className="w-6 h-6 rounded bg-slate-800 text-white text-xs cursor-pointer"
-                          >
-                            +
-                          </button>
-                        </div>
+      <form onSubmit={handlePlaceOrder} className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* ستون راست: اطلاعات آدرس و روش ارسال (۷ ستون) */}
+        <div className="lg:col-span-7 space-y-6">
+          {/* ۱. اطلاعات گیرنده */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
+            <h2 className="text-base font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
+              <MapPin className="w-5 h-5 text-blue-400" />
+              مشخصات و آدرس تحویل‌گیرنده
+            </h2>
 
-                        <button
-                          type="button"
-                          onClick={() =>
-                            removeItem(item.productId, item.variantSku)
-                          }
-                          className="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs text-slate-400 mb-1.5">
+                  نام و نام خانوادگی گیرنده *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="نام و نام خانوادگی گیرنده"
+                  value={recipientName}
+                  onChange={(e) => setRecipientName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"
+                />
               </div>
 
-              {/* فرم اطلاعات گیرنده */}
-              <form
-                id="checkout-form"
-                onSubmit={handlePlaceOrder}
-                className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4"
-              >
-                <h2 className="text-base font-bold text-white border-b border-slate-800 pb-3">
-                  ۲. اطلاعات و آدرس تحویل گیرنده
-                </h2>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1.5">
+                  شماره موبایل جهت هماهنگی *
+                </label>
+                <input
+                  type="tel"
+                  required
+                  dir="ltr"
+                  placeholder="09120000000"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"
+                />
+              </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs text-slate-300 mb-1">
-                      نام و نام خانوادگی گیرنده *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={recipientName}
-                      onChange={(e) => setRecipientName(e.target.value)}
-                      placeholder="نام گیرنده"
-                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-slate-300 mb-1">
-                      شماره موبایل *
-                    </label>
-                    <input
-                      type="tel"
-                      required
-                      dir="ltr"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      placeholder="09123456789"
-                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-slate-300 mb-1">
-                      شهر *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={city}
-                      onChange={(e) => setCity(e.target.value)}
-                      placeholder="تهران"
-                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-slate-300 mb-1">
-                      کد پستی ۱۰ رقمی *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      dir="ltr"
-                      value={postalCode}
-                      onChange={(e) => setPostalCode(e.target.value)}
-                      placeholder="1456789123"
-                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm font-mono"
-                    />
-                  </div>
-                </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1.5">استان و شهر *</label>
+                <input
+                  type="text"
+                  required
+                  value={city}
+                  onChange={(e) => setCity(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"
+                />
+              </div>
 
-                <div>
-                  <label className="block text-xs text-slate-300 mb-1">
-                    نشانی دقیق پستی *
-                  </label>
-                  <textarea
-                    rows={3}
-                    required
-                    value={fullAddress}
-                    onChange={(e) => setFullAddress(e.target.value)}
-                    placeholder="خیابان، کوچه، پلاک، واحد..."
-                    className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm"
-                  />
-                </div>
-              </form>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1.5">کد پستی ۱۰ رقمی *</label>
+                <input
+                  type="text"
+                  required
+                  dir="ltr"
+                  placeholder="1415563111"
+                  value={postalCode}
+                  onChange={(e) => setPostalCode(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"
+                />
+              </div>
             </div>
 
-            {/* ستون چپ: کد تخفیف و خلاصه فاکتور */}
-            <div className="space-y-6">
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-                <div className="flex items-center gap-2 text-sm font-bold text-white">
-                  <TicketPercent className="w-4 h-4 text-purple-400" />
-                  <span>کد تخفیف دارید؟</span>
-                </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1.5">نشانی دقیق پستی *</label>
+              <textarea
+                rows={3}
+                required
+                placeholder="خیابان، کوچه، پلاک، واحد..."
+                value={fullAddress}
+                onChange={(e) => setFullAddress(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+          </div>
 
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    dir="ltr"
-                    value={couponInput}
-                    onChange={(e) =>
-                      setCouponInput(e.target.value.toUpperCase())
-                    }
-                    placeholder="OFF20"
-                    className="flex-1 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono"
-                  />
-                  <button
-                    type="button"
-                    disabled={isPending}
-                    onClick={handleApplyCoupon}
-                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-medium cursor-pointer"
-                  >
-                    بررسی کد
-                  </button>
-                </div>
+          {/* ۲. انتخاب روش ارسال */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+            <h2 className="text-base font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
+              <Truck className="w-5 h-5 text-emerald-400" />
+              شیوه ارسال مرسوله
+            </h2>
 
-                {couponMsg && (
-                  <p
-                    className={`text-xs ${
-                      couponMsg.type === 'success'
-                        ? 'text-emerald-400'
-                        : 'text-amber-400'
-                    }`}
-                  >
-                    {couponMsg.text}
-                  </p>
-                )}
-              </div>
-
-              {/* صورت‌حساب نهایی */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-                <h2 className="text-base font-bold text-white border-b border-slate-800 pb-3">
-                  خلاصه صورت‌حساب
-                </h2>
-
-                <div className="space-y-2.5 text-xs text-slate-300">
-                  <div className="flex justify-between">
-                    <span>جمع کل کالاها:</span>
-                    <span className="font-mono">{formatPrice(subtotal)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>هزینه ارسال (پست پیشتاز):</span>
-                    <span className="font-mono">
-                      {formatPrice(shippingCost)}
-                    </span>
-                  </div>
-                  {coupon && (
-                    <div className="flex justify-between text-emerald-400">
-                      <span>کد تخفیف ({coupon.code}):</span>
-                      <span className="font-mono">
-                        -{formatPrice(coupon.discountAmount)}
-                      </span>
-                    </div>
-                  )}
-                  <div className="border-t border-slate-800 pt-3 flex justify-between text-sm font-bold text-white">
-                    <span>مبلغ قابل پرداخت:</span>
-                    <span className="font-mono text-emerald-400">
-                      {formatPrice(finalAmount)}
-                    </span>
-                  </div>
-                </div>
-
-                {checkoutError && (
-                  <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 shrink-0" />
-                    <span>{checkoutError}</span>
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  form="checkout-form"
-                  disabled={isPending}
-                  className="w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold text-sm flex items-center justify-center gap-2 transition shadow-lg shadow-emerald-600/20 cursor-pointer"
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {[
+                {
+                  title: 'پست پیشتاز ',
+                  desc: 'تحویل ۲ تا ۴ روز کاری به سراسر کشور',
+                },
+                {
+                  title: 'پیک موتوری ویژه (تهران)',
+                  desc: 'ارسال فوری در همان روز کاری',
+                },
+              ].map((method) => (
+                <label
+                  key={method.title}
+                  onClick={() => setShippingMethod(method.title)}
+                  className={`p-4 rounded-xl border cursor-pointer transition flex items-start gap-3 ${
+                    shippingMethod === method.title
+                      ? 'bg-blue-600/15 border-blue-500 text-white'
+                      : 'bg-slate-950 border-slate-800 text-slate-300'
+                  }`}
                 >
-                  {isPending ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <CreditCard className="w-4 h-4" />
-                  )}
-                  <span>پرداخت آزمایشی و ثبت سفارش</span>
+                  <input
+                    type="radio"
+                    name="shippingMethod"
+                    checked={shippingMethod === method.title}
+                    onChange={() => setShippingMethod(method.title)}
+                    className="mt-1 accent-blue-500"
+                  />
+                  <div>
+                    <div className="text-xs font-bold">{method.title}</div>
+                    <div className="text-[11px] text-slate-400 mt-1">{method.desc}</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* ستون چپ: کد تخفیف و خلاصه فاکتور (۵ ستون) */}
+        <div className="lg:col-span-5 space-y-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 sticky top-24">
+            <h2 className="text-base font-bold text-white border-b border-slate-800 pb-3">
+              مرور اقلام و کد تخفیف
+            </h2>
+
+            {/* لیست خلاصه اقلام */}
+            <div className="space-y-2.5 max-h-48 overflow-y-auto pl-1">
+              {items.map((item) => (
+                <div
+                  key={item.variantSku}
+                  className="flex items-center justify-between text-xs bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/80"
+                >
+                  <div className="truncate max-w-[200px]">
+                    <span className="text-slate-200 font-medium">{item.title}</span>
+                    <span className="text-slate-500 block text-[11px]">
+                      {item.quantity} عدد × {formatPrice(item.unitPrice)}
+                    </span>
+                  </div>
+                  <span className="font-bold text-slate-200">
+                    {formatPrice(item.unitPrice * item.quantity)} تومان
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* باکس کد تخفیف */}
+            <div className="pt-2 border-t border-slate-800 space-y-2">
+              <label className="text-xs text-slate-400 flex items-center gap-1.5">
+                <TicketPercent className="w-4 h-4 text-amber-400" />
+                کد تخفیف دارید؟ (کدهایی که در پنل ادمین ساخته‌اید را تست کنید)
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  dir="ltr"
+                  placeholder="کد تخفیف"
+                  value={couponInput}
+                  onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white font-mono"
+                />
+                <button
+                  type="button"
+                  disabled={isCheckingCoupon || !couponInput}
+                  onClick={handleApplyCoupon}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-xs font-bold text-amber-300 transition cursor-pointer"
+                >
+                  {isCheckingCoupon ? 'بررسی...' : 'اعمال کد'}
                 </button>
               </div>
+              {couponMsg && (
+                <p
+                  className={`text-xs ${
+                    couponMsg.type === 'ok' ? 'text-emerald-400' : 'text-red-400'
+                  }`}
+                >
+                  {couponMsg.text}
+                </p>
+              )}
             </div>
+
+            {/* محاسبه مبالغ */}
+            <div className="border-t border-slate-800 pt-4 space-y-2.5 text-sm">
+              <div className="flex justify-between text-slate-300">
+                <span>مجموع کالاها ({totalItems} عدد)</span>
+                <span>{formatPrice(subtotal)} تومان</span>
+              </div>
+
+              {discountAmount > 0 && (
+                <div className="flex justify-between text-emerald-400 text-xs font-bold">
+                  <span>کسر کد تخفیف ({appliedCoupon?.code})</span>
+                  <span>- {formatPrice(discountAmount)} تومان</span>
+                </div>
+              )}
+
+              <div className="flex justify-between text-slate-300">
+                <span>هزینه ارسال</span>
+                {shippingCost === 0 ? (
+                  <span className="text-emerald-400 font-bold text-xs">رایگان</span>
+                ) : (
+                  <span>{formatPrice(shippingCost)} تومان</span>
+                )}
+              </div>
+
+              <div className="border-t border-slate-800 pt-3 flex justify-between items-center">
+                <span className="font-bold text-white">مبلغ نهایی قابل پرداخت</span>
+                <div className="text-left">
+                  <span className="text-xl font-extrabold text-emerald-400">
+                    {formatPrice(finalPayable)}
+                  </span>{' '}
+                  <span className="text-xs text-slate-400">تومان</span>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isPending}
+              className="w-full py-3.5 px-6 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-sm flex items-center justify-center gap-2 transition cursor-pointer shadow-lg shadow-emerald-600/20"
+            >
+              {isPending ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <ShieldCheck className="w-5 h-5" />
+              )}
+              <span>پرداخت آنلاین و ثبت نهایی سفارش</span>
+            </button>
           </div>
-        )}
-      </main>
+        </div>
+      </form>
     </div>
   );
 }

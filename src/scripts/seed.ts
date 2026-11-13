@@ -57,7 +57,7 @@ async function runSeed() {
         isBanned: false,
       },
       {
-        name: 'سارا محمدی (مشتری)',
+        name: 'کاربر نمونه (مشتری)',
         email: 'customer@example.com',
         passwordHash: demoPassword,
         role: 'CUSTOMER' as const,

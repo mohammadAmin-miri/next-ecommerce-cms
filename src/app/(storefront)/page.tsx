@@ -65,7 +65,7 @@ export default async function HomePage() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-16">
       {/* ۱. بخش Hero (بنر اصلی ویترین و دسترسی سریع به پنل ادمین) */}
-      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-900 to-blue-950/60 border border-slate-800 p-8 md:p-14">
+      <section className="relative overflow-hidden rounded-3xl bg-linear-to-br from-slate-900 via-slate-900 to-blue-950/60 border border-slate-800 p-8 md:p-14">
         <div className="max-w-2xl space-y-6 relative z-10">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-medium">
             <Sparkles className="w-3.5 h-3.5" />
@@ -74,7 +74,7 @@ export default async function HomePage() {
 
           <h1 className="text-3xl md:text-5xl font-extrabold text-white leading-tight">
             تجربه خرید هوشمند با{' '}
-            <span className="text-transparent bg-clip-text bg-gradient-to-l from-blue-400 to-emerald-400">
+            <span className="text-transparent bg-clip-text bg-linear-to-l from-blue-400 to-emerald-400">
               بالاترین سرعت و امنیت
             </span>
           </h1>
