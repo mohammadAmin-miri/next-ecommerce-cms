@@ -99,7 +99,7 @@ export async function registerAction(formData: {
 
     return { success: true };
   } catch (error) {
-    return { success: false, error: 'خطا در ثبت‌نام کاربر جدید.' };
+    return { success: false, error: `خطا در ثبت‌نام کاربر جدید.${error}` };
   }
 }
 

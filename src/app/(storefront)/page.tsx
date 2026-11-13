@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 import Link from 'next/link';
 import { connection } from 'next/server';
 import { Types } from 'mongoose';

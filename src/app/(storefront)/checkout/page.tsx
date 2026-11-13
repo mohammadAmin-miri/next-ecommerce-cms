@@ -2,6 +2,7 @@
 
 import { useState, useTransition, useSyncExternalStore } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useCartStore } from '@/store/cart.store';
 import {
   placeCheckoutOrderAction,
@@ -20,7 +21,6 @@ import {
   ShoppingBag,
 } from 'lucide-react';
 
-// تشخیص ایمن رندر کلاینت در React 19 بدون نیاز به useEffect
 const emptySubscribe = () => () => {};
 function useIsMounted() {
   return useSyncExternalStore(
@@ -31,6 +31,7 @@ function useIsMounted() {
 }
 
 export default function CheckoutPage() {
+  const router = useRouter();
   const { items, getTotalPrice, getTotalItems, clearCart } = useCartStore();
   const mounted = useIsMounted();
 
@@ -53,8 +54,6 @@ export default function CheckoutPage() {
     text: string;
   } | null>(null);
 
-  // کلید یکتای جلوگیری از تکرار سفارش
-  const [idempotencyKey] = useState(() => `CHK-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   const [error, setError] = useState<string | null>(null);
   const [completedOrderNumber, setCompletedOrderNumber] = useState<string | null>(null);
 
@@ -71,8 +70,9 @@ export default function CheckoutPage() {
     );
   }
 
-  // صفحه رسید موفقیت‌آمیز پس از ثبت سفارش
-  if (completedOrderNumber) {
+  // 🔴 نکته کلیدی: رسید موفقیت فقط زمانی نمایش داده شود که سبد خرید خالی است!
+  // اگر کاربر کالای جدیدی به سبد خرید اضافه کرده باشد (items.length > 0)، مستقیماً فرم خرید جدید باز می‌شود.
+  if (completedOrderNumber && items.length === 0) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-16 text-center space-y-6">
         <div className="w-20 h-20 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mx-auto text-emerald-400">
@@ -106,12 +106,16 @@ export default function CheckoutPage() {
         </div>
 
         <div className="flex flex-wrap items-center justify-center gap-4 pt-2">
-          <Link
-            href="/products"
-            className="px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold transition"
+          <button
+            type="button"
+            onClick={() => {
+              setCompletedOrderNumber(null);
+              router.push('/products');
+            }}
+            className="px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold transition cursor-pointer"
           >
-            بازگشت به فروشگاه
-          </Link>
+            خرید مجدد و بازگشت به فروشگاه
+          </button>
           <Link
             href="/admin/orders"
             prefetch={false}
@@ -124,7 +128,7 @@ export default function CheckoutPage() {
     );
   }
 
-  // اگر سبد خرید خالی است
+  // اگر سبد خرید خالی است و سفارشی هم در این لحظه ثبت نشده
   if (items.length === 0) {
     return (
       <div className="max-w-xl mx-auto px-4 py-16 text-center space-y-5">
@@ -177,6 +181,11 @@ export default function CheckoutPage() {
     e.preventDefault();
     setError(null);
 
+    // تولید کلید یکتا به ازای هر بار ثبت سفارش جدید تا سفارش دوم با سفارش اول تداخل نکند
+    const freshIdempotencyKey = `CHK-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+
     startTransition(async () => {
       const res = await placeCheckoutOrderAction({
         items: items.map((i) => ({
@@ -195,7 +204,7 @@ export default function CheckoutPage() {
         },
         shippingMethod,
         couponCode: appliedCoupon?.code,
-        idempotencyKey,
+        idempotencyKey: freshIdempotencyKey,
       });
 
       if (!res.success) {
@@ -203,8 +212,11 @@ export default function CheckoutPage() {
         return;
       }
 
-      clearCart();
+      setAppliedCoupon(null);
+      setCouponInput('');
+      setCouponMsg(null);
       setCompletedOrderNumber(res.orderNumber || 'ORD-SUCCESS');
+      clearCart();
     });
   };
 
@@ -237,7 +249,6 @@ export default function CheckoutPage() {
       <form onSubmit={handlePlaceOrder} className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* ستون راست: اطلاعات آدرس و روش ارسال (۷ ستون) */}
         <div className="lg:col-span-7 space-y-6">
-          {/* ۱. اطلاعات گیرنده */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
             <h2 className="text-base font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
               <MapPin className="w-5 h-5 text-blue-400" />
@@ -252,7 +263,7 @@ export default function CheckoutPage() {
                 <input
                   type="text"
                   required
-                  placeholder="نام و نام خانوادگی گیرنده"
+                  placeholder=" نام و نام خانوادگی گیرنده"
                   value={recipientName}
                   onChange={(e) => setRecipientName(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"
@@ -312,7 +323,6 @@ export default function CheckoutPage() {
             </div>
           </div>
 
-          {/* ۲. انتخاب روش ارسال */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
             <h2 className="text-base font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
               <Truck className="w-5 h-5 text-emerald-400" />
@@ -363,14 +373,13 @@ export default function CheckoutPage() {
               مرور اقلام و کد تخفیف
             </h2>
 
-            {/* لیست خلاصه اقلام */}
             <div className="space-y-2.5 max-h-48 overflow-y-auto pl-1">
               {items.map((item) => (
                 <div
                   key={item.variantSku}
                   className="flex items-center justify-between text-xs bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/80"
                 >
-                  <div className="truncate max-w-[200px]">
+                  <div className="truncate max-w-50">
                     <span className="text-slate-200 font-medium">{item.title}</span>
                     <span className="text-slate-500 block text-[11px]">
                       {item.quantity} عدد × {formatPrice(item.unitPrice)}
@@ -383,17 +392,16 @@ export default function CheckoutPage() {
               ))}
             </div>
 
-            {/* باکس کد تخفیف */}
             <div className="pt-2 border-t border-slate-800 space-y-2">
               <label className="text-xs text-slate-400 flex items-center gap-1.5">
                 <TicketPercent className="w-4 h-4 text-amber-400" />
-                کد تخفیف دارید؟ (کدهایی که در پنل ادمین ساخته‌اید را تست کنید)
+                کد تخفیف دارید؟
               </label>
               <div className="flex items-center gap-2">
                 <input
                   type="text"
                   dir="ltr"
-                  placeholder="کد تخفیف"
+                  placeholder="OOFF"
                   value={couponInput}
                   onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
                   className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white font-mono"
@@ -418,7 +426,6 @@ export default function CheckoutPage() {
               )}
             </div>
 
-            {/* محاسبه مبالغ */}
             <div className="border-t border-slate-800 pt-4 space-y-2.5 text-sm">
               <div className="flex justify-between text-slate-300">
                 <span>مجموع کالاها ({totalItems} عدد)</span>
