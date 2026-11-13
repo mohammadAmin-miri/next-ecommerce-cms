@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: next-ecommerce-mongo
+    restart: always
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo_data:/data/db
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: next-ecommerce-cms
+    restart: always
+    ports:
+      - '3000:3000'
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/next-ecommerce-cms
+      - AUTH_SECRET=super-secret-production-key-change-me
+      - NEXT_PUBLIC_APP_URL=http://localhost:3000
+      - SUPER_ADMIN_EMAIL=admin@example.com
+      - SUPER_ADMIN_PASSWORD=Admin@1234
+      - DEMO_ADMIN_EMAIL=demo@example.com
+      - DEMO_ADMIN_PASSWORD=Demo@1234
+    depends_on:
+      - mongodb
+
+volumes:
+  mongo_data:

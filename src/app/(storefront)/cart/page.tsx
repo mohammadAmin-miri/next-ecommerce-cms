@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 'use client';
 
 import { useSyncExternalStore } from 'react';
@@ -168,7 +169,7 @@ export default function CartPage() {
                       <Plus className="w-3.5 h-3.5" />
                     </button>
 
-                    <span className="text-xs font-bold text-white min-w-[16px] text-center">
+                    <span className="text-xs font-bold text-white min-w-4 text-center">
                       {item.quantity}
                     </span>
 

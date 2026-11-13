@@ -40,7 +40,7 @@ async function runSeed() {
     const adminPassword = await bcrypt.hash('Admin@1234', 10);
     const demoPassword = await bcrypt.hash('Demo@1234', 10);
 
-    const [superAdmin, demoAdmin, sampleCustomer] = await User.create([
+    const [superAdmin,, sampleCustomer] = await User.create([
       {
         name: 'مدیر ارشد سیستم',
         email: 'admin@example.com',
